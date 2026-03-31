@@ -5,6 +5,7 @@ import com.portfolio.javaqualityservicelab.approval.application.ApprovalValidati
 import com.portfolio.javaqualityservicelab.approval.application.ApprovalRequestNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -20,7 +21,7 @@ import java.util.Map;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ApiErrorResponse handleValidationError(
+    public ResponseEntity<ApiErrorResponse> handleValidationError(
             MethodArgumentNotValidException exception,
             HttpServletRequest request
     ) {
@@ -28,7 +29,7 @@ public class GlobalExceptionHandler {
         for (FieldError fieldError : exception.getBindingResult().getFieldErrors()) {
             validationErrors.putIfAbsent(fieldError.getField(), fieldError.getDefaultMessage());
         }
-        return error(
+        return errorResponse(
                 HttpStatus.BAD_REQUEST,
                 "validation failed",
                 request,
@@ -40,8 +41,8 @@ public class GlobalExceptionHandler {
             MethodArgumentTypeMismatchException.class,
             HttpMessageNotReadableException.class
     })
-    public ApiErrorResponse handleBadRequest(Exception exception, HttpServletRequest request) {
-        return error(
+    public ResponseEntity<ApiErrorResponse> handleBadRequest(Exception exception, HttpServletRequest request) {
+        return errorResponse(
                 HttpStatus.BAD_REQUEST,
                 "invalid request payload or parameter",
                 request,
@@ -50,23 +51,32 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ApprovalRequestNotFoundException.class)
-    public ApiErrorResponse handleNotFound(ApprovalRequestNotFoundException exception, HttpServletRequest request) {
-        return error(HttpStatus.NOT_FOUND, exception.getMessage(), request, null);
+    public ResponseEntity<ApiErrorResponse> handleNotFound(
+            ApprovalRequestNotFoundException exception,
+            HttpServletRequest request
+    ) {
+        return errorResponse(HttpStatus.NOT_FOUND, exception.getMessage(), request, null);
     }
 
     @ExceptionHandler(ApprovalValidationException.class)
-    public ApiErrorResponse handleBusinessValidation(ApprovalValidationException exception, HttpServletRequest request) {
-        return error(HttpStatus.BAD_REQUEST, exception.getMessage(), request, null);
+    public ResponseEntity<ApiErrorResponse> handleBusinessValidation(
+            ApprovalValidationException exception,
+            HttpServletRequest request
+    ) {
+        return errorResponse(HttpStatus.BAD_REQUEST, exception.getMessage(), request, null);
     }
 
     @ExceptionHandler(ApprovalStateTransitionException.class)
-    public ApiErrorResponse handleConflict(ApprovalStateTransitionException exception, HttpServletRequest request) {
-        return error(HttpStatus.CONFLICT, exception.getMessage(), request, null);
+    public ResponseEntity<ApiErrorResponse> handleConflict(
+            ApprovalStateTransitionException exception,
+            HttpServletRequest request
+    ) {
+        return errorResponse(HttpStatus.CONFLICT, exception.getMessage(), request, null);
     }
 
     @ExceptionHandler(Exception.class)
-    public ApiErrorResponse handleUnexpected(Exception exception, HttpServletRequest request) {
-        return error(
+    public ResponseEntity<ApiErrorResponse> handleUnexpected(Exception exception, HttpServletRequest request) {
+        return errorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "unexpected error occurred",
                 request,
@@ -74,13 +84,13 @@ public class GlobalExceptionHandler {
         );
     }
 
-    private ApiErrorResponse error(
+    private ResponseEntity<ApiErrorResponse> errorResponse(
             HttpStatus status,
             String message,
             HttpServletRequest request,
             Map<String, String> validationErrors
     ) {
-        return new ApiErrorResponse(
+        ApiErrorResponse response = new ApiErrorResponse(
                 Instant.now(),
                 status.value(),
                 status.getReasonPhrase(),
@@ -88,5 +98,6 @@ public class GlobalExceptionHandler {
                 request.getRequestURI(),
                 validationErrors
         );
+        return ResponseEntity.status(status).body(response);
     }
 }

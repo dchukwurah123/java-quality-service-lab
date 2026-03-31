@@ -1,6 +1,7 @@
 package com.portfolio.javaqualityservicelab.approval.api;
 
 import com.portfolio.javaqualityservicelab.approval.infrastructure.ApprovalRequestRepository;
+import com.portfolio.javaqualityservicelab.approval.infrastructure.ApprovalAuditEntryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +42,9 @@ class ApprovalRequestApiIntegrationTest {
     @Autowired
     private ApprovalRequestRepository approvalRequestRepository;
 
+    @Autowired
+    private ApprovalAuditEntryRepository approvalAuditEntryRepository;
+
     @DynamicPropertySource
     @SuppressWarnings("unused")
     static void configureDatasource(DynamicPropertyRegistry registry) {
@@ -54,6 +58,7 @@ class ApprovalRequestApiIntegrationTest {
     @BeforeEach
     @SuppressWarnings("unused")
     void cleanDatabase() {
+        approvalAuditEntryRepository.deleteAll();
         approvalRequestRepository.deleteAll();
     }
 
