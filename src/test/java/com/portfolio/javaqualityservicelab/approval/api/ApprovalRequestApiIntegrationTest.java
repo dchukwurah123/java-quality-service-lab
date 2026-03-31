@@ -200,6 +200,97 @@ class ApprovalRequestApiIntegrationTest {
     }
 
     @Test
+    void should_returnBadRequest_when_submitPayloadIsInvalid() throws Exception {
+        String locationPath = createDraftRequest();
+
+        mockMvc.perform(post(locationPath + "/submit")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"actor\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("validation failed"))
+                .andExpect(jsonPath("$.validationErrors.actor").exists());
+    }
+
+    @Test
+    void should_returnConflict_when_returnIsCalledBeforeSubmit() throws Exception {
+        String locationPath = createDraftRequest();
+
+        mockMvc.perform(post(locationPath + "/return")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "actor": "manager",
+                                  "comment": "Please add details"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("only submitted requests can be returned"));
+    }
+
+    @Test
+    void should_returnConflict_when_updatingApprovedRequest() throws Exception {
+        String locationPath = createDraftRequest();
+
+        mockMvc.perform(post(locationPath + "/submit")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"actor\":\"alice\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post(locationPath + "/approve")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"actor\":\"manager\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put(locationPath)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "subject": "Post-approval edit",
+                                  "description": "Should not be allowed",
+                                  "approver": "manager"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("only draft or returned requests can be updated"));
+    }
+
+    @Test
+    void should_returnEmptyAudit_when_noDecisionWasMade() throws Exception {
+        String locationPath = createDraftRequest();
+
+        mockMvc.perform(get(locationPath + "/audit"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void should_filterListByStatusAndRequestedBy_caseInsensitive() throws Exception {
+        createDraftRequest();
+
+        mockMvc.perform(post("/requests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "subject": "Office Equipment",
+                                  "description": "Dual monitors",
+                                  "requestedBy": "bob",
+                                  "approver": "lead"
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/requests")
+                        .param("status", "DRAFT")
+                        .param("requestedBy", "ALICE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].requestedBy").value("alice"));
+    }
+
+    @Test
     void should_returnStructuredBusinessValidationError_when_requesterEqualsApprover() throws Exception {
         mockMvc.perform(post("/requests")
                         .contentType(MediaType.APPLICATION_JSON)
