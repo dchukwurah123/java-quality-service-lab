@@ -1,63 +1,122 @@
 # java-quality-service-lab
 
-Interview-quality Java 21 + Spring Boot service implementing a generic approval workflow with realistic business rules, clean structure, and strong automated tests.
+Clean, interview-ready Java 21 Spring Boot service that models an approval-request workflow with explicit business rules, structured error handling, and strong test coverage.
 
-## Stack
+> Add a CI badge after publishing to GitHub so the URL points to your actual repository owner and name.
+
+## Quick Start
+
+Prerequisites:
 
 - Java 21
-- Spring Boot 3
-- Maven
-- Spring Web + Validation + Data JPA
-- PostgreSQL (runtime) + H2 (default local datasource)
-- JUnit 5 + Mockito + Spring Boot Test
-- Testcontainers (PostgreSQL) for integration tests
-- JaCoCo coverage checks
-- GitHub Actions CI
+- Maven 3.9+
+- Docker (for integration tests and containerized run)
 
-## Architecture
+Run locally:
 
-Layered, package-by-feature design to keep business rules explicit and testable:
+```bash
+mvn spring-boot:run
+```
 
-- `approval.api`: REST controllers + request/response DTOs
-- `approval.application`: use-case service + command objects + app exceptions
-- `approval.domain`: entity, status enum, transition rules
-- `approval.infrastructure`: Spring Data repository
-- `shared.api`: global error handling + common error response
+Smoke test:
 
-### Why this structure
+```bash
+curl -X POST http://localhost:8080/requests \
+  -H "Content-Type: application/json" \
+  -d "{\"subject\":\"Laptop Purchase\",\"description\":\"Need replacement device\",\"requestedBy\":\"alice\",\"approver\":\"manager\"}"
+```
 
-- Keeps HTTP concerns out of domain logic.
-- Keeps transition rules centralized in one entity model.
-- Makes service-layer tests focused and fast.
-- Stays readable for interviews without introducing complex frameworks.
+## Architecture Overview
 
-## Approval workflow rules
+The project uses a layered, package-by-feature structure to keep business logic testable and easy to explain:
 
-- New requests start as `DRAFT`.
-- Only `DRAFT` and `RETURNED` requests can be edited.
-- `DRAFT` can be `SUBMITTED`.
-- Only `SUBMITTED` requests can be `APPROVED` or `RETURNED`.
-- `RETURNED` requests can be resubmitted.
-- `APPROVED` requests are immutable.
-- Return action requires a non-blank comment.
-- Approve and return actions create audit entries.
+- `approval.api`: HTTP endpoints and request/response DTOs
+- `approval.application`: use-case orchestration and state-transition checks
+- `approval.domain`: domain entities and state model
+- `approval.infrastructure`: Spring Data JPA repositories
+- `shared.api`: global exception-to-HTTP mapping
 
-## API
+High-level request flow:
 
-Base path: `/api/v1/approvals`
+```mermaid
+flowchart LR
+    Client[HTTP Client] --> Controller[approval.api]
+    Controller --> Service[approval.application ApprovalService]
+    Service --> Repo[(approval.infrastructure JPA Repositories)]
+    Service --> Domain[approval.domain State Rules]
+    Service --> Audit[(approval_audit_entries)]
+    Repo --> Db[(PostgreSQL/H2)]
+```
 
-- `POST /` create approval request
-- `PUT /{id}` update request while editable
-- `GET /{id}` fetch by id
-- `GET /?status=&requestedBy=&approver=` list/filter
-- `POST /{id}/submit`
-- `POST /{id}/approve`
-- `POST /{id}/return`
-- `GET /{id}/audits`
+Design choices:
 
-## Error handling
+- Controllers stay thin; service layer owns business rules.
+- Domain model reflects workflow states explicitly (`DRAFT`, `SUBMITTED`, `RETURNED`, `APPROVED`).
+- Audit trail is persisted for key decisions (`RETURNED`, `APPROVED`).
 
-All errors use a consistent JSON shape:
+## Domain Overview
+
+Core aggregate: `ApprovalRequest`
+
+Fields include:
+
+- request metadata (`subject`, `description`, `requestedBy`, `approver`)
+- workflow state (`status`)
+- decision metadata (`latestComment`, `decisionAt`)
+- lifecycle timestamps (`createdAt`, `updatedAt`)
+
+Business rules:
+
+- New requests start as `DRAFT`
+- Only `DRAFT` and `RETURNED` are editable
+- Only `DRAFT` and `RETURNED` can be submitted
+- Only `SUBMITTED` can be approved or returned
+- Return requires a non-blank comment
+- Approved requests are immutable
+- Approve/return actions produce audit entries
+
+## API Overview
+
+Base resource: `/requests`
+
+- `POST /requests` create draft request
+- `GET /requests/{id}` fetch one request
+- `GET /requests` list requests (supports filters)
+- `PUT /requests/{id}` update editable request
+- `POST /requests/{id}/submit` submit draft/returned request
+- `POST /requests/{id}/approve` approve submitted request
+- `POST /requests/{id}/return` return submitted request
+- `GET /requests/{id}/audit` list decision audit history
+
+Example create request:
+
+```json
+{
+  "subject": "Laptop Purchase",
+  "description": "Need replacement device for testing",
+  "requestedBy": "alice",
+  "approver": "manager"
+}
+```
+
+Example create response:
+
+```json
+{
+  "id": "9f48186e-7702-4f90-b6dc-4f5a6ece41ea",
+  "subject": "Laptop Purchase",
+  "description": "Need replacement device for testing",
+  "requestedBy": "alice",
+  "approver": "manager",
+  "status": "DRAFT",
+  "latestComment": null,
+  "createdAt": "2026-03-31T18:30:00Z",
+  "updatedAt": "2026-03-31T18:30:00Z",
+  "decisionAt": null
+}
+```
+
+Structured error response shape:
 
 - `timestamp`
 - `status`
@@ -66,100 +125,116 @@ All errors use a consistent JSON shape:
 - `path`
 - `validationErrors` (only for validation failures)
 
-Status mapping:
+Happy-path walkthrough:
 
-- `400` validation / malformed request
-- `404` unknown approval request
-- `409` invalid business transition
-- `500` unexpected server error
+1. `POST /requests` creates a new approval request in `DRAFT`.
+2. `PUT /requests/{id}` updates draft details.
+3. `POST /requests/{id}/submit` moves to `SUBMITTED`.
+4. `POST /requests/{id}/return` (with comment) moves to `RETURNED`.
+5. `POST /requests/{id}/submit` resubmits to `SUBMITTED`.
+6. `POST /requests/{id}/approve` moves to `APPROVED`.
+7. `GET /requests/{id}/audit` shows `RETURNED` and `APPROVED` decision history.
 
-## Test strategy
+## Test Strategy
 
-### Unit tests (service layer)
+The suite is intentionally split by test value:
 
-`ApprovalServiceTest` validates core business behavior quickly using mocked repositories:
+- **Unit tests (`ApprovalServiceTest`)**
+  - fast checks for transition rules and negative paths
+  - mocked repositories where boundary isolation helps readability
+- **Integration tests (`ApprovalRequestApiIntegrationTest`)**
+  - HTTP-level contract testing via `MockMvc`
+  - validation and error mapping verification
+  - end-to-end workflow and audit checks
+  - role/actor negative-path checks (`submit`, `approve`) at HTTP level
+  - PostgreSQL-backed via Testcontainers for production-like behavior
 
-- create sets `DRAFT`
-- update restrictions by state
-- submit, return, resubmit, approve transitions
-- return comment required
-- audit entry creation for approve/return
-- not-found handling
+Run tests:
 
-### Integration tests
+```bash
+# unit only
+mvn -Dtest=ApprovalServiceTest test
 
-`ApprovalControllerIntegrationTest` uses Spring Boot + MockMvc + Testcontainers PostgreSQL:
+# integration only (Docker required)
+mvn -Dtest=ApprovalRequestApiIntegrationTest test
 
-- create/get/list flow
-- transition flow with audits
-- validation and not-found error contracts
-
-> Integration tests are marked with `@Testcontainers(disabledWithoutDocker = true)`, so they skip when Docker is unavailable.
+# full suite
+mvn test
+```
 
 ## Coverage
 
-JaCoCo runs on `mvn verify` and enforces:
+JaCoCo is integrated into Maven and runs during `verify`.
 
-- line coverage >= 80%
-- branch coverage >= 70%
+Quality gates:
 
-HTML report:
+- line coverage >= 75%
+- branch coverage >= 60%
+
+Commands:
+
+```bash
+# run tests + enforce coverage gate
+mvn verify
+
+# generate report without enforcing gate
+mvn test jacoco:report
+```
+
+Coverage report:
 
 - `target/site/jacoco/index.html`
 
-## Local run
+## Key Tradeoffs
 
-1. Install Java 21 and Maven 3.9+.
-2. Start app:
-
-```bash
-mvn spring-boot:run
-```
-
-3. Example create call:
-
-```bash
-curl -X POST http://localhost:8080/api/v1/approvals \
-  -H "Content-Type: application/json" \
-  -d "{\"subject\":\"Laptop Purchase\",\"description\":\"Need replacement device\",\"requestedBy\":\"alice\",\"approver\":\"manager\"}"
-```
-
-4. Submit draft:
-
-```bash
-curl -X POST http://localhost:8080/api/v1/approvals/{id}/submit \
-  -H "Content-Type: application/json" \
-  -d "{\"actor\":\"alice\"}"
-```
-
-5. List requests:
-
-```bash
-curl "http://localhost:8080/api/v1/approvals?status=DRAFT"
-```
-
-## Local test commands
-
-- Unit + integration tests: `mvn test`
-- Full verification + coverage gate: `mvn verify`
-
-## Docker
-
-Build image:
-
-```bash
-docker build -t java-quality-service-lab:local .
-```
-
-Run container:
-
-```bash
-docker run --rm -p 8080:8080 java-quality-service-lab:local
-```
+- **Service-centric rules vs richer domain model:** keeps the code straightforward for interviews and explicit in one place, at the cost of less domain encapsulation.
+- **Repository query methods vs dynamic specifications:** current approach is easy to read for a small domain, but may need refactor as filters grow.
+- **Moderate coverage gates (75/60):** promotes quality without making CI too fragile during iterative improvements.
+- **Testcontainers for integration tests:** slower than pure in-memory tests, but gives production-like confidence for JPA + SQL behavior.
 
 ## CI
 
 GitHub Actions workflow: `.github/workflows/ci.yml`
 
-- Runs on push to `main` and all pull requests
-- Executes `mvn verify` on Java 21
+What it does:
+
+- runs on push and pull request
+- sets up Java 21 with Maven dependency caching
+- runs `mvn verify`
+- uploads test reports and JaCoCo report as artifacts
+
+## Docker
+
+Container strategy:
+
+- multi-stage Docker build
+- JRE-only runtime image
+- non-root runtime user
+- optional runtime JVM tuning via `JAVA_OPTS`
+
+Build:
+
+```bash
+docker build -t java-quality-service-lab:local .
+```
+
+Run:
+
+```bash
+docker run --rm -p 8080:8080 java-quality-service-lab:local
+```
+
+Run with JVM options:
+
+```bash
+docker run --rm -p 8080:8080 -e JAVA_OPTS="-Xms256m -Xmx512m" java-quality-service-lab:local
+```
+
+## Future Improvements
+
+- Add OpenAPI documentation (`springdoc`) for interactive API exploration
+- Introduce role-based authorization and audit actor identity from auth context
+- Add optimistic-lock conflict tests for concurrent updates
+- Add pagination/sorting on `GET /requests`
+- Add migration tooling (`Flyway`) for explicit schema evolution
+- Add release workflow with image publishing

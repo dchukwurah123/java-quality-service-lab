@@ -2,7 +2,7 @@ package com.portfolio.javaqualityservicelab.shared.api;
 
 import com.portfolio.javaqualityservicelab.approval.application.ApprovalStateTransitionException;
 import com.portfolio.javaqualityservicelab.approval.application.ApprovalValidationException;
-import com.portfolio.javaqualityservicelab.approval.application.ResourceNotFoundException;
+import com.portfolio.javaqualityservicelab.approval.application.ApprovalRequestNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -49,8 +49,8 @@ public class GlobalExceptionHandler {
         );
     }
 
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ApiErrorResponse handleNotFound(ResourceNotFoundException exception, HttpServletRequest request) {
+    @ExceptionHandler(ApprovalRequestNotFoundException.class)
+    public ApiErrorResponse handleNotFound(ApprovalRequestNotFoundException exception, HttpServletRequest request) {
         return error(HttpStatus.NOT_FOUND, exception.getMessage(), request, null);
     }
 

@@ -12,5 +12,9 @@ WORKDIR /app
 
 COPY --from=build /app/target/java-quality-service-lab-0.0.1-SNAPSHOT.jar app.jar
 
+RUN useradd --system --uid 10001 spring
+USER spring
+
+ENV JAVA_OPTS=""
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]

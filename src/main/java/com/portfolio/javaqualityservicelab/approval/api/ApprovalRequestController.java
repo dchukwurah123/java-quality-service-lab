@@ -1,11 +1,6 @@
 package com.portfolio.javaqualityservicelab.approval.api;
 
 import com.portfolio.javaqualityservicelab.approval.application.ApprovalService;
-import com.portfolio.javaqualityservicelab.approval.application.ApproveApprovalCommand;
-import com.portfolio.javaqualityservicelab.approval.application.CreateApprovalCommand;
-import com.portfolio.javaqualityservicelab.approval.application.ReturnApprovalCommand;
-import com.portfolio.javaqualityservicelab.approval.application.SubmitApprovalCommand;
-import com.portfolio.javaqualityservicelab.approval.application.UpdateApprovalCommand;
 import com.portfolio.javaqualityservicelab.approval.domain.ApprovalStatus;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -24,12 +19,12 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/approvals")
-public class ApprovalController {
+@RequestMapping("/requests")
+public class ApprovalRequestController {
 
     private final ApprovalService approvalService;
 
-    public ApprovalController(ApprovalService approvalService) {
+    public ApprovalRequestController(ApprovalService approvalService) {
         this.approvalService = approvalService;
     }
 
@@ -37,12 +32,10 @@ public class ApprovalController {
     public ResponseEntity<ApprovalResponse> createApproval(@Valid @RequestBody CreateApprovalRequest request) {
         ApprovalResponse response = ApprovalResponse.from(
                 approvalService.createApproval(
-                        new CreateApprovalCommand(
-                                request.subject(),
-                                request.description(),
-                                request.requestedBy(),
-                                request.approver()
-                        )
+                        request.subject(),
+                        request.description(),
+                        request.requestedBy(),
+                        request.approver()
                 )
         );
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
@@ -57,11 +50,9 @@ public class ApprovalController {
         return ApprovalResponse.from(
                 approvalService.updateApproval(
                         id,
-                        new UpdateApprovalCommand(
-                                request.subject(),
-                                request.description(),
-                                request.approver()
-                        )
+                        request.subject(),
+                        request.description(),
+                        request.approver()
                 )
         );
     }
@@ -72,12 +63,12 @@ public class ApprovalController {
     }
 
     @GetMapping
-    public List<ApprovalResponse> listApprovals(
+    public List<ApprovalResponse> listRequests(
             @RequestParam(required = false) ApprovalStatus status,
             @RequestParam(required = false) String requestedBy,
             @RequestParam(required = false) String approver
     ) {
-        return approvalService.listApprovals(status, requestedBy, approver)
+        return approvalService.listRequests(status, requestedBy, approver)
                 .stream()
                 .map(ApprovalResponse::from)
                 .toList();
@@ -86,25 +77,25 @@ public class ApprovalController {
     @PostMapping("/{id}/submit")
     public ApprovalResponse submitApproval(@PathVariable UUID id, @Valid @RequestBody SubmitApprovalRequest request) {
         return ApprovalResponse.from(
-                approvalService.submitApproval(id, new SubmitApprovalCommand(request.actor()))
+                approvalService.submitApproval(id, request.actor())
         );
     }
 
     @PostMapping("/{id}/approve")
     public ApprovalResponse approveApproval(@PathVariable UUID id, @Valid @RequestBody ApproveApprovalRequest request) {
         return ApprovalResponse.from(
-                approvalService.approveApproval(id, new ApproveApprovalCommand(request.actor()))
+                approvalService.approveApproval(id, request.actor())
         );
     }
 
     @PostMapping("/{id}/return")
     public ApprovalResponse returnApproval(@PathVariable UUID id, @Valid @RequestBody ReturnApprovalRequest request) {
         return ApprovalResponse.from(
-                approvalService.returnApproval(id, new ReturnApprovalCommand(request.actor(), request.comment()))
+                approvalService.returnApproval(id, request.actor(), request.comment())
         );
     }
 
-    @GetMapping("/{id}/audits")
+    @GetMapping("/{id}/audit")
     public List<ApprovalAuditResponse> listAuditHistory(@PathVariable UUID id) {
         return approvalService.listAuditHistory(id)
                 .stream()
