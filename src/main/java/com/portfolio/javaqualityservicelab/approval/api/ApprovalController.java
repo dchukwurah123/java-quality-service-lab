@@ -2,15 +2,17 @@ package com.portfolio.javaqualityservicelab.approval.api;
 
 import com.portfolio.javaqualityservicelab.approval.application.ApprovalService;
 import com.portfolio.javaqualityservicelab.approval.application.ApproveApprovalCommand;
-import com.portfolio.javaqualityservicelab.approval.application.CancelApprovalCommand;
 import com.portfolio.javaqualityservicelab.approval.application.CreateApprovalCommand;
-import com.portfolio.javaqualityservicelab.approval.application.RejectApprovalCommand;
+import com.portfolio.javaqualityservicelab.approval.application.ReturnApprovalCommand;
+import com.portfolio.javaqualityservicelab.approval.application.SubmitApprovalCommand;
+import com.portfolio.javaqualityservicelab.approval.application.UpdateApprovalCommand;
 import com.portfolio.javaqualityservicelab.approval.domain.ApprovalStatus;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -50,6 +52,20 @@ public class ApprovalController {
         return ResponseEntity.created(location).body(response);
     }
 
+    @PutMapping("/{id}")
+    public ApprovalResponse updateApproval(@PathVariable UUID id, @Valid @RequestBody UpdateApprovalRequest request) {
+        return ApprovalResponse.from(
+                approvalService.updateApproval(
+                        id,
+                        new UpdateApprovalCommand(
+                                request.subject(),
+                                request.description(),
+                                request.approver()
+                        )
+                )
+        );
+    }
+
     @GetMapping("/{id}")
     public ApprovalResponse getApproval(@PathVariable UUID id) {
         return ApprovalResponse.from(approvalService.getApproval(id));
@@ -67,6 +83,13 @@ public class ApprovalController {
                 .toList();
     }
 
+    @PostMapping("/{id}/submit")
+    public ApprovalResponse submitApproval(@PathVariable UUID id, @Valid @RequestBody SubmitApprovalRequest request) {
+        return ApprovalResponse.from(
+                approvalService.submitApproval(id, new SubmitApprovalCommand(request.actor()))
+        );
+    }
+
     @PostMapping("/{id}/approve")
     public ApprovalResponse approveApproval(@PathVariable UUID id, @Valid @RequestBody ApproveApprovalRequest request) {
         return ApprovalResponse.from(
@@ -74,17 +97,18 @@ public class ApprovalController {
         );
     }
 
-    @PostMapping("/{id}/reject")
-    public ApprovalResponse rejectApproval(@PathVariable UUID id, @Valid @RequestBody RejectApprovalRequest request) {
+    @PostMapping("/{id}/return")
+    public ApprovalResponse returnApproval(@PathVariable UUID id, @Valid @RequestBody ReturnApprovalRequest request) {
         return ApprovalResponse.from(
-                approvalService.rejectApproval(id, new RejectApprovalCommand(request.actor(), request.reason()))
+                approvalService.returnApproval(id, new ReturnApprovalCommand(request.actor(), request.comment()))
         );
     }
 
-    @PostMapping("/{id}/cancel")
-    public ApprovalResponse cancelApproval(@PathVariable UUID id, @Valid @RequestBody CancelApprovalRequest request) {
-        return ApprovalResponse.from(
-                approvalService.cancelApproval(id, new CancelApprovalCommand(request.actor(), request.reason()))
-        );
+    @GetMapping("/{id}/audits")
+    public List<ApprovalAuditResponse> listAuditHistory(@PathVariable UUID id) {
+        return approvalService.listAuditHistory(id)
+                .stream()
+                .map(ApprovalAuditResponse::from)
+                .toList();
     }
 }

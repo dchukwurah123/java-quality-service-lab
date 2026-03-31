@@ -1,7 +1,7 @@
 package com.portfolio.javaqualityservicelab.approval.application;
 
-public record RejectApprovalCommand(
+public record ReturnApprovalCommand(
         String actor,
-        String reason
+        String comment
 ) {
 }

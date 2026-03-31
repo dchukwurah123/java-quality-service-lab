@@ -1,6 +1,7 @@
 package com.portfolio.javaqualityservicelab.shared.api;
 
-import com.portfolio.javaqualityservicelab.approval.application.InvalidApprovalActionException;
+import com.portfolio.javaqualityservicelab.approval.application.ApprovalStateTransitionException;
+import com.portfolio.javaqualityservicelab.approval.application.ApprovalValidationException;
 import com.portfolio.javaqualityservicelab.approval.application.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
@@ -53,8 +54,13 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.NOT_FOUND, exception.getMessage(), request, null);
     }
 
-    @ExceptionHandler(InvalidApprovalActionException.class)
-    public ApiErrorResponse handleConflict(InvalidApprovalActionException exception, HttpServletRequest request) {
+    @ExceptionHandler(ApprovalValidationException.class)
+    public ApiErrorResponse handleBusinessValidation(ApprovalValidationException exception, HttpServletRequest request) {
+        return error(HttpStatus.BAD_REQUEST, exception.getMessage(), request, null);
+    }
+
+    @ExceptionHandler(ApprovalStateTransitionException.class)
+    public ApiErrorResponse handleConflict(ApprovalStateTransitionException exception, HttpServletRequest request) {
         return error(HttpStatus.CONFLICT, exception.getMessage(), request, null);
     }
 

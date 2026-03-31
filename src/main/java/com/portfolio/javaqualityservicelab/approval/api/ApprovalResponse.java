@@ -13,7 +13,7 @@ public record ApprovalResponse(
         String requestedBy,
         String approver,
         ApprovalStatus status,
-        String decisionReason,
+        String latestComment,
         Instant createdAt,
         Instant updatedAt,
         Instant decisionAt
@@ -26,7 +26,7 @@ public record ApprovalResponse(
                 approvalRequest.getRequestedBy(),
                 approvalRequest.getApprover(),
                 approvalRequest.getStatus(),
-                approvalRequest.getDecisionReason(),
+                approvalRequest.getLatestComment(),
                 approvalRequest.getCreatedAt(),
                 approvalRequest.getUpdatedAt(),
                 approvalRequest.getDecisionAt()

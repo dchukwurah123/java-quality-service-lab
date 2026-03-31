@@ -20,6 +20,7 @@ import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -69,7 +70,7 @@ class ApprovalControllerIntegrationTest {
                         .content(createPayload))
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"))
-                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andReturn()
                 .getResponse()
                 .getHeader("Location");
@@ -82,13 +83,13 @@ class ApprovalControllerIntegrationTest {
                 .andExpect(jsonPath("$.requestedBy").value("alice"))
                 .andExpect(jsonPath("$.approver").value("manager"));
 
-        mockMvc.perform(get("/api/v1/approvals?status=PENDING"))
+        mockMvc.perform(get("/api/v1/approvals?status=DRAFT"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1));
     }
 
     @Test
-    void approvalTransitionAndConflictBehaviorWorks() throws Exception {
+    void updateSubmitReturnResubmitAndApproveFlowWorksWithAudits() throws Exception {
         String createPayload = """
                 {
                   "subject": "Hardware Refresh",
@@ -108,6 +109,53 @@ class ApprovalControllerIntegrationTest {
 
         String locationPath = URI.create(location).getPath();
 
+        String updatePayload = """
+                {
+                  "subject": "Hardware Refresh v2",
+                  "description": "New machine for performance testing",
+                  "approver": "manager"
+                }
+                """;
+
+        mockMvc.perform(put(locationPath)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updatePayload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.subject").value("Hardware Refresh v2"));
+
+        String submitPayload = """
+                {
+                  "actor": "alice"
+                }
+                """;
+
+        mockMvc.perform(post(locationPath + "/submit")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitPayload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUBMITTED"));
+
+        String returnPayload = """
+                {
+                  "actor": "manager",
+                  "comment": "Please include cost breakdown"
+                }
+                """;
+
+        mockMvc.perform(post(locationPath + "/return")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(returnPayload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RETURNED"))
+                .andExpect(jsonPath("$.latestComment").value("Please include cost breakdown"));
+
+        mockMvc.perform(post(locationPath + "/submit")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(submitPayload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUBMITTED"));
+
         String approvePayload = """
                 {
                   "actor": "manager"
@@ -120,18 +168,12 @@ class ApprovalControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("APPROVED"));
 
-        String rejectPayload = """
-                {
-                  "actor": "manager",
-                  "reason": "Missing details"
-                }
-                """;
-
-        mockMvc.perform(post(locationPath + "/reject")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(rejectPayload))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value("request is already in terminal state: APPROVED"));
+        mockMvc.perform(get(locationPath + "/audits"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].action").value("RETURNED"))
+                .andExpect(jsonPath("$[0].comment").value("Please include cost breakdown"))
+                .andExpect(jsonPath("$[1].action").value("APPROVED"));
     }
 
     @Test
@@ -165,7 +207,7 @@ class ApprovalControllerIntegrationTest {
     }
 
     @Test
-    void createWithSameRequesterAndApproverReturnsConflict() throws Exception {
+    void createWithSameRequesterAndApproverReturnsBadRequest() throws Exception {
         String invalidBusinessPayload = """
                 {
                   "subject": "Tooling",
@@ -178,7 +220,39 @@ class ApprovalControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/approvals")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(invalidBusinessPayload))
-                .andExpect(status().isConflict())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("requester and approver must be different users"));
+    }
+
+    @Test
+    void returnRequiresComment() throws Exception {
+        String createPayload = """
+                {
+                  "subject": "Procurement",
+                  "description": "Order test kits",
+                  "requestedBy": "alice",
+                  "approver": "manager"
+                }
+                """;
+
+        String location = mockMvc.perform(post("/api/v1/approvals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPayload))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getHeader("Location");
+        String locationPath = URI.create(location).getPath();
+
+        mockMvc.perform(post(locationPath + "/submit")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"actor\":\"alice\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post(locationPath + "/return")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"actor\":\"manager\",\"comment\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.validationErrors.comment").exists());
     }
 }

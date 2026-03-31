@@ -1,7 +1,9 @@
 package com.portfolio.javaqualityservicelab.approval.application;
 
 import com.portfolio.javaqualityservicelab.approval.domain.ApprovalRequest;
+import com.portfolio.javaqualityservicelab.approval.domain.ApprovalAuditEntry;
 import com.portfolio.javaqualityservicelab.approval.domain.ApprovalStatus;
+import com.portfolio.javaqualityservicelab.approval.infrastructure.ApprovalAuditEntryRepository;
 import com.portfolio.javaqualityservicelab.approval.infrastructure.ApprovalRequestRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,11 +27,14 @@ class ApprovalServiceTest {
     @Mock
     private ApprovalRequestRepository approvalRequestRepository;
 
+    @Mock
+    private ApprovalAuditEntryRepository approvalAuditEntryRepository;
+
     @InjectMocks
     private ApprovalService approvalService;
 
     @Test
-    void createApprovalSetsPendingStatus() {
+    void createApprovalSetsDraftStatus() {
         when(approvalRequestRepository.save(any(ApprovalRequest.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -43,14 +48,14 @@ class ApprovalServiceTest {
         );
 
         assertNotNull(created.getId());
-        assertEquals(ApprovalStatus.PENDING, created.getStatus());
+        assertEquals(ApprovalStatus.DRAFT, created.getStatus());
         verify(approvalRequestRepository).save(any(ApprovalRequest.class));
     }
 
     @Test
     void createApprovalWithSameRequesterAndApproverThrowsConflict() {
-        InvalidApprovalActionException exception = assertThrows(
-                InvalidApprovalActionException.class,
+        ApprovalValidationException exception = assertThrows(
+                ApprovalValidationException.class,
                 () -> approvalService.createApproval(
                         new CreateApprovalCommand(
                                 "Purchase laptop",
@@ -65,15 +70,18 @@ class ApprovalServiceTest {
     }
 
     @Test
-    void approveByAssignedApproverTransitionsToApproved() {
-        ApprovalRequest approvalRequest = ApprovalRequest.createNew(
+    void submitThenApproveCreatesAuditAndTransitionsToApproved() {
+        ApprovalRequest approvalRequest = ApprovalRequest.createDraft(
                 "Travel budget",
                 "Conference attendance",
                 "alice",
                 "manager"
         );
+        approvalRequest.markSubmitted();
         when(approvalRequestRepository.findById(approvalRequest.getId())).thenReturn(Optional.of(approvalRequest));
         when(approvalRequestRepository.save(approvalRequest)).thenReturn(approvalRequest);
+        when(approvalAuditEntryRepository.save(any(ApprovalAuditEntry.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         ApprovalRequest result = approvalService.approveApproval(
                 approvalRequest.getId(),
@@ -83,79 +91,83 @@ class ApprovalServiceTest {
         assertEquals(ApprovalStatus.APPROVED, result.getStatus());
         assertNotNull(result.getDecisionAt());
         verify(approvalRequestRepository).save(approvalRequest);
+        verify(approvalAuditEntryRepository).save(any(ApprovalAuditEntry.class));
     }
 
     @Test
-    void approveByNonApproverThrowsConflict() {
-        ApprovalRequest approvalRequest = ApprovalRequest.createNew(
+    void updateIsAllowedWhenReturned() {
+        ApprovalRequest approvalRequest = ApprovalRequest.createDraft(
+                "Travel budget",
+                "Conference attendance",
+                "alice",
+                "manager"
+        );
+        approvalRequest.markSubmitted();
+        approvalRequest.markReturned("needs more details");
+        when(approvalRequestRepository.findById(approvalRequest.getId())).thenReturn(Optional.of(approvalRequest));
+        when(approvalRequestRepository.save(approvalRequest)).thenReturn(approvalRequest);
+
+        ApprovalRequest updated = approvalService.updateApproval(
+                approvalRequest.getId(),
+                new UpdateApprovalCommand("Updated subject", "Updated description", "manager")
+        );
+
+        assertEquals("Updated subject", updated.getSubject());
+        assertEquals(ApprovalStatus.RETURNED, updated.getStatus());
+    }
+
+    @Test
+    void updateIsBlockedWhenSubmitted() {
+        ApprovalRequest approvalRequest = ApprovalRequest.createDraft(
                 "Cloud credits",
                 "Sandbox budget",
                 "alice",
                 "manager"
         );
+        approvalRequest.markSubmitted();
         when(approvalRequestRepository.findById(approvalRequest.getId())).thenReturn(Optional.of(approvalRequest));
 
-        InvalidApprovalActionException exception = assertThrows(
-                InvalidApprovalActionException.class,
-                () -> approvalService.approveApproval(
+        ApprovalStateTransitionException exception = assertThrows(
+                ApprovalStateTransitionException.class,
+                () -> approvalService.updateApproval(
                         approvalRequest.getId(),
-                        new ApproveApprovalCommand("bob")
+                        new UpdateApprovalCommand("new subject", "new description", "manager")
                 )
         );
 
-        assertEquals("only the assigned approver can approve this request", exception.getMessage());
+        assertEquals("only draft or returned requests can be updated", exception.getMessage());
     }
 
     @Test
-    void rejectWithoutReasonThrowsConflict() {
-        ApprovalRequest approvalRequest = ApprovalRequest.createNew(
+    void returnWithoutCommentThrowsValidation() {
+        ApprovalRequest approvalRequest = ApprovalRequest.createDraft(
                 "Headcount request",
                 "New QA role",
                 "alice",
                 "manager"
         );
+        approvalRequest.markSubmitted();
         when(approvalRequestRepository.findById(approvalRequest.getId())).thenReturn(Optional.of(approvalRequest));
 
-        InvalidApprovalActionException exception = assertThrows(
-                InvalidApprovalActionException.class,
-                () -> approvalService.rejectApproval(
+        ApprovalValidationException exception = assertThrows(
+                ApprovalValidationException.class,
+                () -> approvalService.returnApproval(
                         approvalRequest.getId(),
-                        new RejectApprovalCommand("manager", " ")
+                        new ReturnApprovalCommand("manager", " ")
                 )
         );
 
-        assertEquals("rejection reason is required", exception.getMessage());
+        assertEquals("comment is required when returning a request", exception.getMessage());
     }
 
     @Test
-    void cancelByNonRequesterThrowsConflict() {
-        ApprovalRequest approvalRequest = ApprovalRequest.createNew(
-                "Software license",
-                "Design tool subscription",
-                "alice",
-                "manager"
-        );
-        when(approvalRequestRepository.findById(approvalRequest.getId())).thenReturn(Optional.of(approvalRequest));
-
-        InvalidApprovalActionException exception = assertThrows(
-                InvalidApprovalActionException.class,
-                () -> approvalService.cancelApproval(
-                        approvalRequest.getId(),
-                        new CancelApprovalCommand("manager", "No longer needed")
-                )
-        );
-
-        assertEquals("only the requester can cancel this request", exception.getMessage());
-    }
-
-    @Test
-    void approveMissingApprovalThrowsNotFound() {
+    void submitMissingApprovalThrowsNotFound() {
         UUID missingId = UUID.randomUUID();
         when(approvalRequestRepository.findById(missingId)).thenReturn(Optional.empty());
 
         assertThrows(
                 ResourceNotFoundException.class,
-                () -> approvalService.approveApproval(missingId, new ApproveApprovalCommand("manager"))
+                () -> approvalService.submitApproval(missingId, new SubmitApprovalCommand("alice"))
         );
     }
 }

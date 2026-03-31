@@ -33,23 +33,27 @@ Layered, package-by-feature design to keep business rules explicit and testable:
 
 ## Approval workflow rules
 
-- New requests start as `PENDING`.
-- Only `PENDING` requests can transition.
-- Only assigned approver can approve/reject.
-- Requester cannot approve their own request.
-- Rejection requires a non-blank reason.
-- Only requester can cancel a pending request.
+- New requests start as `DRAFT`.
+- Only `DRAFT` and `RETURNED` requests can be edited.
+- `DRAFT` can be `SUBMITTED`.
+- Only `SUBMITTED` requests can be `APPROVED` or `RETURNED`.
+- `RETURNED` requests can be resubmitted.
+- `APPROVED` requests are immutable.
+- Return action requires a non-blank comment.
+- Approve and return actions create audit entries.
 
 ## API
 
 Base path: `/api/v1/approvals`
 
 - `POST /` create approval request
+- `PUT /{id}` update request while editable
 - `GET /{id}` fetch by id
 - `GET /?status=&requestedBy=&approver=` list/filter
+- `POST /{id}/submit`
 - `POST /{id}/approve`
-- `POST /{id}/reject`
-- `POST /{id}/cancel`
+- `POST /{id}/return`
+- `GET /{id}/audits`
 
 ## Error handling
 
@@ -73,13 +77,13 @@ Status mapping:
 
 ### Unit tests (service layer)
 
-`ApprovalServiceTest` validates core business behavior quickly using mocked repository:
+`ApprovalServiceTest` validates core business behavior quickly using mocked repositories:
 
-- create sets `PENDING`
-- successful approval path
-- non-approver blocked from approve
-- reject without reason blocked
-- non-requester blocked from cancel
+- create sets `DRAFT`
+- update restrictions by state
+- submit, return, resubmit, approve transitions
+- return comment required
+- audit entry creation for approve/return
 - not-found handling
 
 ### Integration tests
@@ -87,7 +91,7 @@ Status mapping:
 `ApprovalControllerIntegrationTest` uses Spring Boot + MockMvc + Testcontainers PostgreSQL:
 
 - create/get/list flow
-- transition + conflict behavior
+- transition flow with audits
 - validation and not-found error contracts
 
 > Integration tests are marked with `@Testcontainers(disabledWithoutDocker = true)`, so they skip when Docker is unavailable.
@@ -120,10 +124,18 @@ curl -X POST http://localhost:8080/api/v1/approvals \
   -d "{\"subject\":\"Laptop Purchase\",\"description\":\"Need replacement device\",\"requestedBy\":\"alice\",\"approver\":\"manager\"}"
 ```
 
-4. List requests:
+4. Submit draft:
 
 ```bash
-curl "http://localhost:8080/api/v1/approvals?status=PENDING"
+curl -X POST http://localhost:8080/api/v1/approvals/{id}/submit \
+  -H "Content-Type: application/json" \
+  -d "{\"actor\":\"alice\"}"
+```
+
+5. List requests:
+
+```bash
+curl "http://localhost:8080/api/v1/approvals?status=DRAFT"
 ```
 
 ## Local test commands
